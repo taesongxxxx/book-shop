@@ -16,4 +16,5 @@ const allCategory = async (req, res) => {
   }
 }
 
+
 export { allCategory };
