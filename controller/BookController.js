@@ -1,8 +1,10 @@
 import conn from "../mariadb.js";
+import { ensureAuthorization } from "../auth.js";
 import { StatusCodes } from "http-status-codes";
 
 // (카테고리 별, 신간 여부) 전체 도서 목록 조회
 const allBooks = async (req, res) => {
+  let allBooksRes = {};
   const { category_id, news, limit, currentPage } = req.query;
 
   // limit : page 당 도서 수
@@ -11,7 +13,7 @@ const allBooks = async (req, res) => {
   let offset = limit * (currentPage - 1);
 
   let sql =
-    "SELECT *, (SELECT count(*) FROM likes WHERE liked_book_id = books.id) AS likes FROM books";
+    "SELECT SQL_CALC_FOUND_ROWS *, (SELECT count(*) FROM likes WHERE liked_book_id = books.id) AS likes FROM books";
   let values = [];
 
   if (category_id && news) {
@@ -31,10 +33,23 @@ const allBooks = async (req, res) => {
   values.push(parseInt(limit), offset);
 
   try {
-    const [results] = await conn.query(sql, values);
+    let [results] = await conn.query(sql, values);
 
-    if (results.length) {
-      return res.status(StatusCodes.OK).json(results);
+    if (results) {
+      allBooksRes.books = results;
+    } else {
+      return res.status(StatusCodes.NOT_FOUND).end();
+    }
+
+    sql = "SELECT FOUND_ROWS()";
+    [results] = await conn.query(sql);  
+
+    if (results) {
+      let pagination = {};
+      pagination.currentPage = parseInt(currentPage);
+      pagination.totalCount = results[0]["FOUND_ROWS()"];
+      allBooksRes.pagination = pagination;
+      return res.status(StatusCodes.OK).json(allBooksRes);
     } else {
       return res.status(StatusCodes.NOT_FOUND).end();
     }
@@ -46,14 +61,34 @@ const allBooks = async (req, res) => {
 
 const bookDetail = async (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+
+  let decodedJwt = null;
+
+  if (req.headers["authorization"]) {
+    decodedJwt = ensureAuthorization(req, res);
+    if (!decodedJwt) return;
+  }
+
+  let sql;
+  let values;
+
+  if (decodedJwt) {
+    sql = `SELECT *,
+	          (SELECT count(*) FROM likes WHERE liked_book_id = books.id ) AS likes,
+	          (SELECT EXISTS (SELECT * FROM likes WHERE user_id = ? AND liked_book_id = ?)) AS liked
+	          FROM books LEFT JOIN category 
+            ON books.category_id = category.category_id WHERE books.id = ?`;
+    values = [decodedJwt.id, id, id];
+  } else {
+     sql = `SELECT *,
+            (SELECT count(*) FROM likes WHERE liked_book_id = books.id) AS likes,
+            0 AS liked FROM books 
+            LEFT JOIN category ON books.category_id = category.category_id 
+            WHERE books.id = ?`;
+    values = [id]; 
+  }
+
   try {
-    const sql = `SELECT *,
-	                (SELECT count(*) FROM likes WHERE liked_book_id = books.id ) AS likes,
-	                (SELECT EXISTS (SELECT * FROM likes WHERE user_id = ? AND liked_book_id = ?)) AS liked
-	                FROM books LEFT JOIN category 
-                  ON books.category_id = category.category_id WHERE books.id = ?`;
-    let values = [user_id, id, id];
     const [results] = await conn.query(sql, values);
     if (results.length) {
       return res.status(StatusCodes.OK).json(results[0]);

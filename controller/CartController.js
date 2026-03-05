@@ -1,12 +1,18 @@
+import { ensureAuthorization } from "../auth.js";
 import conn from "../mariadb.js";
 import { StatusCodes } from "http-status-codes";
+import dotenv from "dotenv";
+dotenv.config();
 
 const addToCart = async (req, res) => {
-  const { book_id, quantity, user_id } = req.body;
+  const { book_id, quantity } = req.body;
+
+  let decodedJwt = ensureAuthorization(req, res);
+  if (!decodedJwt) return;
 
   let sql =
     "INSERT INTO cartItems (user_id, book_id, quantity) VALUES (?, ?, ?)";
-  let values = [user_id, book_id, quantity];
+  let values = [decodedJwt.id, book_id, quantity];
 
   try {
     const [result] = await conn.query(sql, values);
@@ -22,20 +28,28 @@ const addToCart = async (req, res) => {
 };
 
 const getCartItems = async (req, res) => {
-  const { user_id, selected } = req.body;
+  const { selected } = req.body || {};
+
+  let decodedJwt = ensureAuthorization(req, res);
+  if (!decodedJwt) return;
 
   let sql = `SELECT cartItems.id, book_id, title, summary, quantity, price
    FROM cartItems LEFT JOIN books 
    ON cartItems.book_id = books.id 
-   WHERE user_id = ? AND cartItems.id IN (?)`;
+   WHERE user_id = ?`;
 
-  let values = [user_id, selected];
+  let values = [decodedJwt.id];
+
+  if (selected) {
+    sql = sql + ` AND cartItems.id IN (?)`;
+    values = [decodedJwt.id, selected];
+  }
 
   try {
     const [results] = await conn.query(sql, values);
     if (results.length) {
       return res.status(StatusCodes.OK).json(results);
-    } else {
+    } else {      
       return res.status(StatusCodes.NOT_FOUND).end();
     }
   } catch (err) {
@@ -46,6 +60,9 @@ const getCartItems = async (req, res) => {
 
 const removeCartItem = async (req, res) => {
   const { id } = req.params;
+
+  let decodedJwt = ensureAuthorization(req, res);
+  if (!decodedJwt) return;
 
   let sql = "DELETE FROM cartItems WHERE id = ?";
   let values = [id];

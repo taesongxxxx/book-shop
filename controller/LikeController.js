@@ -1,12 +1,16 @@
+import { ensureAuthorization } from "../auth.js";
 import conn from "../mariadb.js";
+import jwt from "jsonwebtoken";
 import { StatusCodes } from "http-status-codes";
+import dotenv from "dotenv";
+dotenv.config();
 
 const addLike = async (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
 
+  let decodedJwt = ensureAuthorization(req, res);
   let sql = "INSERT INTO likes (user_id, liked_book_id) VALUES (?, ?)"; 
-  let values = [user_id, id];
+  let values = [decodedJwt.id, id];
 
   try {
     const [results] = await conn.query(sql, values);
@@ -23,10 +27,12 @@ const addLike = async (req, res) => {
 
 const removeLike = async (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+
+  let receivedJwt = req.headers["authorization"];
+  let decodedJwt = jwt.verify(receivedJwt, process.env.PRIVATE_KEY);
 
   let sql = "DELETE FROM likes WHERE user_id = ? AND liked_book_id = ?";
-  let values = [user_id, id];
+  let values = [decodedJwt.id, id];
   
   try {
     const [results] = await conn.query(sql, values);

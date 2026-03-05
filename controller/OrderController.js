@@ -1,8 +1,12 @@
 import conn from "../mariadb.js";
+import { ensureAuthorization } from "../auth.js";
 import { StatusCodes } from "http-status-codes";
 
 const order = async (req, res) => {
-  const { items, delivery, totalQuantity, totalPrice, userId, firstBookTitle } = req.body;
+  const { items, delivery, totalQuantity, totalPrice, firstBookTitle } = req.body;
+
+  let decodedJwt = ensureAuthorization(req, res);
+  if (!decodedJwt) return;
 
   try {
     // 1. 배송 정보 입력 (Delivery Insert)
@@ -15,7 +19,7 @@ const order = async (req, res) => {
     // 2. 주문 정보 입력 (Orders Insert)
     sql = `INSERT INTO orders (book_title, total_quantity, total_price, user_id, delivery_id)
            VALUES (?, ?, ?, ?, ?)`;
-    values = [firstBookTitle, totalQuantity, totalPrice, userId, delivery_id];
+    values = [firstBookTitle, totalQuantity, totalPrice, decodedJwt.id, delivery_id];
 
     const [orderResults] = await conn.query(sql, values);
     const order_id = orderResults.insertId; // 생성된 order_id 저장
@@ -49,6 +53,9 @@ const order = async (req, res) => {
 
 const getOrders = async (req, res) => {
 
+  let decodedJwt = ensureAuthorization(req, res);
+  if (!decodedJwt) return;
+
   let sql = `SELECT orders.id, book_title, total_quantity, total_price, created_at,
               address, receiver, contact
               FROM orders LEFT JOIN delivery
@@ -64,6 +71,9 @@ const getOrders = async (req, res) => {
 
 const getOrderDetail = async (req, res) => {
   const { id } = req.params;
+
+  let decodedJwt = ensureAuthorization(req, res);
+  if (!decodedJwt) return;
   
   let sql = `SELECT book_id, title, author, price, quantity
               FROM orderedBook LEFT JOIN books
